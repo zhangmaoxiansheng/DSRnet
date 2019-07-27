@@ -25,18 +25,21 @@ def dataloader(root_path):
 
     img_file = os.listdir(img_path)
     img_file.sort()
+    #print(img_file)
     img_file = [os.path.join(img_path,d) for d in img_file]
     all_img = img_file
     test_img = img_file[1:50]
 
     lr_file = os.listdir(lr_path)
     lr_file.sort()
+    #print(lr_file)
     lr_file = [os.path.join(lr_path,d) for d in lr_file]
     all_lr = lr_file
     test_lr = all_lr[1:50]
     
     hr_file = os.listdir(hr_path)
     hr_file.sort()
+    #print(hr_file)
     hr_file = [os.path.join(hr_path,d) for d in hr_file]
     all_hr = hr_file
     test_hr = all_hr[1:50]

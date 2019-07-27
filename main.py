@@ -29,6 +29,8 @@ parser.add_argument('--datapath', default='dataset/',
                     help='datapath')
 parser.add_argument('--epochs', type=int, default=50,
                     help='number of epochs to train')
+parser.add_argument('--learning_rate', type=float, default=1e-6,
+                    help='number of epochs to train')
 parser.add_argument('--loadmodel', default= None,
                     help='load model')
 parser.add_argument('--savemodel', default='./trained_model',
@@ -110,11 +112,17 @@ def train(img,lr, hr):
         res_output = [torch.squeeze(d,1) for d in res_output]
         output = [res_output[i] + lr_pyramid[i] for i in range(4)]
             
-        o_loss = loss = F.smooth_l1_loss(lr_pyramid[0], disp_gt[0], size_average=True) + 0.7 * F.smooth_l1_loss(lr_pyramid[1], disp_gt[1], size_average=True) + 0.3 * F.smooth_l1_loss(lr_pyramid[2], disp_gt[2], size_average=True) + 0.1 * F.smooth_l1_loss(lr_pyramid[3], disp_gt[3], size_average=True)
-        l1_loss = F.smooth_l1_loss(res_output[0], res_gt[0], size_average=True) + 0.7 * F.smooth_l1_loss(res_output[1], res_gt[1], size_average=True) + 0.3 * F.smooth_l1_loss(res_output[2], res_gt[2], size_average=True) + 0.1 * F.smooth_l1_loss(res_output[3], res_gt[3], size_average=True)
-        diff_loss = l1_loss - o_loss
+        o_loss = loss = F.smooth_l1_loss(lr_pyramid[0], disp_gt[0], size_average=True) + F.smooth_l1_loss(lr_pyramid[1], disp_gt[1], size_average=True) + F.smooth_l1_loss(lr_pyramid[2], disp_gt[2], size_average=True) + F.smooth_l1_loss(lr_pyramid[3], disp_gt[3], size_average=True)
+        
+        l1_loss = F.smooth_l1_loss(res_output[0], res_gt[0], size_average=True) + F.smooth_l1_loss(res_output[1], res_gt[1], size_average=True) + F.smooth_l1_loss(res_output[2], res_gt[2], size_average=True) + F.smooth_l1_loss(res_output[3], res_gt[3], size_average=True)
+        
+        diff_loss = torch.exp(l1_loss - o_loss)
         SSIM_loss = torch.mean(SSIM(output[0], disp_gt[0])) + torch.mean(SSIM(output[1], disp_gt[1])) + torch.mean(SSIM(output[2], disp_gt[2])) + torch.mean(SSIM(output[3], disp_gt[3]))
-        total_loss = 0.25 * l1_loss + 0.75 * SSIM_loss + 5 * diff_loss 
+        
+        lr_l1_loss = F.smooth_l1_loss( output[0], lr_pyramid[0],size_average=True) + F.smooth_l1_loss( output[1], lr_pyramid[1],size_average=True) +  F.smooth_l1_loss(output[2], lr_pyramid[2], size_average=True) +  F.smooth_l1_loss( output[3], lr_pyramid[3],size_average=True)
+        lr_l1_loss  = torch.exp(-lr_l1_loss)
+
+        total_loss = 0.75 * l1_loss + 0.25 * SSIM_loss + 2 * diff_loss + 0.025 * lr_l1_loss
 
     total_loss.backward()
     optimizer.step()
@@ -144,8 +152,8 @@ def test(img,lr,hr):
 
         return loss
 
-def adjust_learning_rate(optimizer, epoch):
-    lr = 0.00001
+def adjust_learning_rate(optimizer, epoch, init_learning_rate):
+    lr = init_learning_rate
     print(lr)
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
@@ -158,7 +166,7 @@ def main():
     for epoch in range(1, args.epochs+1):
         print('This is %d-th epoch' %(epoch))
         total_train_loss = 0
-        adjust_learning_rate(optimizer,epoch)
+        adjust_learning_rate(optimizer,epoch,args.learning_rate)
 
         ## training ##
         for batch_idx, (img_, lr_, hr_) in enumerate(Trainimgloader):
@@ -174,8 +182,9 @@ def main():
                 writer.add_scalar('loss/total_loss', total_loss, global_step=global_step)
                 writer.add_scalar('loss/diff_loss', loss0 - l1_loss, global_step=global_step)
             if batch_idx % 50 == 0:
-                writer.add_images('image/result', torch.unsqueeze(result,1)/192, global_step=global_step)
-                writer.add_images('image/origin', torch.unsqueeze(lr_,1)/192, global_step=global_step)
+                writer.add_image('image/result', torch.index_select(result,0,torch.cuda.LongTensor([0]))/192, global_step=global_step)#result is torch.cuda.float
+                writer.add_image('image/ref', torch.index_select(hr_,0,torch.LongTensor([0]))/192, global_step=global_step)#result is torch.cuda.float
+                writer.add_image('image/origin', torch.index_select(lr_,0,torch.LongTensor([0]))/192, global_step=global_step)#lr_ is torch.float
             
         savefilename = args.savemodel+'/checkpoint_'+str(epoch)+'.tar'
         torch.save({

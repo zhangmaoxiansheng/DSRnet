@@ -171,7 +171,7 @@ class get_disp(nn.Module):
         
     def forward(self, x):
         x = self.get_disp_conv(x)
-        x = torch.clamp(x, -5 , 5)
+        x = torch.clamp(x, -10 , 10)
         return x
 
 def scale_pyramid(img, num_scale = 4):   
