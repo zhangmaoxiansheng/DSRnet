@@ -29,7 +29,7 @@ parser.add_argument('--datapath', default='dataset/',
                     help='datapath')
 parser.add_argument('--epochs', type=int, default=50,
                     help='number of epochs to train')
-parser.add_argument('--learning_rate', type=float, default=1e-6,
+parser.add_argument('--learning_rate', type=float, default=1e-5,
                     help='number of epochs to train')
 parser.add_argument('--loadmodel', default= None,
                     help='load model')
@@ -96,6 +96,7 @@ def train(img,lr, hr):
         img, lr, hr= img.cuda(), lr.cuda(), hr.cuda()
         
     disp_gt = scale_pyramid(hr.unsqueeze(1))
+    
     lr_pyramid = scale_pyramid(lr)
         #---------
         #mask = hr < args.maxdisp
@@ -127,28 +128,30 @@ def train(img,lr, hr):
     total_loss.backward()
     optimizer.step()
 
-    return total_loss.data[0], l1_loss.data[0], o_loss.data[0], output[0]
+    return total_loss.data, l1_loss.data, o_loss.data, output[0]
 
 def test(img,lr,hr):
         model.eval()
-        img   = Variable(torch.FloatTensor(img))
-        lr   = Variable(torch.FloatTensor(lr))   
+        img = Variable(torch.FloatTensor(img))
+        lr  = Variable(torch.FloatTensor(lr)) 
+        hr = Variable(torch.FloatTensor(hr))   
         if args.cuda:
-            img, lr = img.cuda(), lr.cuda()
-
+            img, lr, hr= img.cuda(), lr.cuda(), hr.cuda()
+        lr = torch.unsqueeze(lr,1)
+        hr = torch.unsqueeze(hr,1)
         #---------
         mask = hr < 192
         #----
 
         with torch.no_grad():
-            output3 = model(img,lr)
-
-        output = torch.squeeze(output3.data.cpu(),1)[:,4:,:]
+            res_output = model(img,lr)
+        output = res_output[0].squeeze(1) + lr.squeeze(1)
+        #output = torch.squeeze(output3.data.cpu(),1)[:,4:,:]
 
         if len(hr[mask])==0:
             loss = 0
         else:
-            loss = torch.mean(torch.abs(output[mask]-hr[mask]))  # end-point-error
+            loss = torch.mean(torch.abs(output[mask]-hr.squeeze(1)[mask]))  # end-point-error
 
         return loss
 

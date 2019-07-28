@@ -178,7 +178,7 @@ def scale_pyramid(img, num_scale = 4):
     scaled_imgs = [img]
     #print(shape)
     for i in range(num_scale - 1):
-        scaled_imgs.append(F.interpolate(img,scale_factor=0.5**(i+1)))
+        scaled_imgs.append(F.interpolate(img,scale_factor=0.5**(i+1),mode='bilinear'))
 
     return scaled_imgs
     

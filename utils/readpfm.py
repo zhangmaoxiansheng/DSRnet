@@ -38,5 +38,5 @@ def readPFM(file):
 
     data = np.reshape(data, shape)
     data = np.flipud(data)
-    return data, scale
+    return data
 

@@ -6,7 +6,7 @@ import torchvision.transforms as transforms
 import random
 from PIL import Image, ImageOps
 import preprocess
-import readpfm as rp
+import utils.readpfm as rp
 import numpy as np
 
 IMG_EXTENSIONS = [
@@ -37,11 +37,13 @@ class myImageFloder(data.Dataset):
     def __getitem__(self, index):
         img = self.img[index]
         lr = self.lr[index]
-        hr = self.hr[index]
+        
+        if self.hr is not None:
+            hr = self.hr[index]
+            hr_ = self.dploader(hr)
         
         img_ = self.loader(img)
         lr_ = self.dploader(lr)
-        hr_ = self.dploader(hr)
         
         if self.training:  
             w, h = img_.size
@@ -52,26 +54,27 @@ class myImageFloder(data.Dataset):
 
             img_ = img_.crop((x1, y1, x1 + tw, y1 + th))
             lr_ = np.ascontiguousarray(lr_,dtype=np.float32)
-            hr_ = np.ascontiguousarray(hr_,dtype=np.float32)
+            
 
             lr_ = lr_[y1:y1 + th, x1:x1 + tw]
+            hr_ = np.ascontiguousarray(hr_,dtype=np.float32)
             hr_ = hr_[y1:y1 + th, x1:x1 + tw]
-
 
             processed = preprocess.get_transform(augment=False)  
             img_   = processed(img_)
-            
-
             return img_, lr_, hr_
-        else:
+        elif self.hr is not None:
             w, h = img_.size
             img_ = img_.crop((w-960, h-544, w, h))
             
             processed = preprocess.get_transform(augment=False)  
             img_       = processed(img_)
-            
-
             return img_, lr_, hr_
+        else:
+            lr_ = np.ascontiguousarray(lr_,dtype=np.float32)
+            processed = preprocess.get_transform(augment=False)  
+            img_   = processed(img_)
+            return img_, lr_
 
     def __len__(self):
         return len(self.img)
