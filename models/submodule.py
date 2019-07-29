@@ -166,12 +166,11 @@ class get_disp(nn.Module):
             nn.Conv2d(ch_in, 32, kernel_size=3, stride=1, padding=1,bias=False),
             nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1,bias=False),
             nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1,bias=False),
-            
         )
         
-    def forward(self, x):
+    def forward(self, x, disp_origin):
         x = self.get_disp_conv(x)
-        x = torch.clamp(x, -10 , 10)
+        x = torch.clamp(x, -80 , 80)
         return x
 
 def scale_pyramid(img, num_scale = 4):   
