@@ -46,7 +46,8 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
 
 # set gpu id used
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
-
+if not os.path.isdir(args.savemodel):
+    os.mkdir(args.savemodel)
 torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
@@ -106,7 +107,7 @@ def train(img,lr, hr):
         disp_gt = [torch.squeeze(d,1) for d in disp_gt]
         res_gt = [disp_gt[i] - lr_pyramid[i] for i in range(4)]
 
-        mask = [torch.abs(res_gt[i]) > 1 for i in range(4)]
+        mask = [torch.abs(res_gt[i]) > 0.25 for i in range(4)]
         mask = [m.float() for m in mask]
         mask = [m.detach_() for m in mask]
         optimizer.zero_grad()

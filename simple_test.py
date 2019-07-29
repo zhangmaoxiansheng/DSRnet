@@ -20,6 +20,8 @@ from models import *
 parser = argparse.ArgumentParser(description='DSRnet_simple_test')
 parser.add_argument('--model', default='basic',
                     help='select model')
+parser.add_argument('--maxdisp', type=int ,default=144,
+                    help='maxium disparity')
 parser.add_argument('--img', type=str, default='./sr1.png',
                     help='imagepath')
 parser.add_argument('--lr', type=str, default='./lr.pfm',
@@ -35,8 +37,9 @@ parser.add_argument('--seed', type=int, default=1, metavar='S',
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
-
-model = basic()
+if not os.path.isdir(args.output_dir):
+    os.mkdir(args.output_dir)
+model = basic(args.maxdisp)
 
 if args.cuda:
     model = nn.DataParallel(model)
@@ -77,14 +80,18 @@ def test(img,lr):
     output = res_output[0].squeeze() + lr.squeeze()
     output = output.cpu()
     output = output.numpy()
-    return output
+    res_output = res_output[0].squeeze()
+    res_output = res_output.cpu()
+    res_output = res_output.numpy()
+    return output, res_output
 def main():
     if not os.path.isdir(args.output_dir):
         os.mkdir(args.output_dir)
     for num, (img, lr) in enumerate(Testloader):
-        output = test(img,lr)
+        output, res_output = test(img,lr)
         print("finished %d"%(num+1))
         plt.imsave(str(os.path.join(args.output_dir,basenames[num]) + "_sr_vis.png"), output, cmap = 'plasma')
+        write_pfm(str(os.path.join(args.output_dir,basenames[num]) + "_res.pfm"),res_output)
         write_pfm(str(os.path.join(args.output_dir,basenames[num]) + "_sr.pfm"),output)
 if __name__ == '__main__':
     main()
