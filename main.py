@@ -122,17 +122,8 @@ def train(img,lr, hr):
         
         lr_l1_loss = F.smooth_l1_loss( output[0]*mask[0], lr_pyramid[0]*mask[0],size_average=True) + F.smooth_l1_loss( output[1]*mask[1], lr_pyramid[1]*mask[1],size_average=True) +  F.smooth_l1_loss(output[2]*mask[2], lr_pyramid[2]*mask[2], size_average=True) +  F.smooth_l1_loss( output[3]*mask[3], lr_pyramid[3]*mask[3],size_average=True)
         lr_l1_loss  = torch.exp(-lr_l1_loss)
-        # o_loss = loss = F.smooth_l1_loss(lr_pyramid[0], disp_gt[0], size_average=True) + F.smooth_l1_loss(lr_pyramid[1], disp_gt[1], size_average=True) + F.smooth_l1_loss(lr_pyramid[2], disp_gt[2], size_average=True) + F.smooth_l1_loss(lr_pyramid[3], disp_gt[3], size_average=True)
-        
-        # l1_loss = F.smooth_l1_loss(res_output[0], res_gt[0], size_average=True) + F.smooth_l1_loss(res_output[1], res_gt[1], size_average=True) + F.smooth_l1_loss(res_output[2], res_gt[2], size_average=True) + F.smooth_l1_loss(res_output[3], res_gt[3], size_average=True)
-        
-        # diff_loss = torch.exp(l1_loss - o_loss)
-        # SSIM_loss = torch.mean(SSIM(output[0], disp_gt[0])) + torch.mean(SSIM(output[1], disp_gt[1])) + torch.mean(SSIM(output[2], disp_gt[2])) + torch.mean(SSIM(output[3], disp_gt[3]))
-        
-        # lr_l1_loss = F.smooth_l1_loss( output[0], lr_pyramid[0],size_average=True) + F.smooth_l1_loss( output[1], lr_pyramid[1],size_average=True) +  F.smooth_l1_loss(output[2], lr_pyramid[2], size_average=True) +  F.smooth_l1_loss( output[3], lr_pyramid[3],size_average=True)
-        # lr_l1_loss  = torch.exp(-lr_l1_loss)
 
-        total_loss = 7 * l1_loss + 5 * SSIM_loss + 10 * diff_loss + 2 * lr_l1_loss
+        total_loss = 1.5 * l1_loss + 1 * SSIM_loss + 2.5 * diff_loss + 0.7 * lr_l1_loss
 
     total_loss.backward()
     optimizer.step()
