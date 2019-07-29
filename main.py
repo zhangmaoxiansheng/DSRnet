@@ -62,14 +62,13 @@ Testimgloader = torch.utils.data.DataLoader(
             batch_size= 8, shuffle= False, num_workers= 4, drop_last=False)
 
 
-# if args.model == 'stackhourglass':
-#     model = stackhourglass(args.maxdisp)
-# elif args.model == 'basic':
-#     model = basic()
-# else:
-#     print('no model')
+if args.model == 'basic_regress':
+    model = basic_regress(args.maxdisp)
+elif args.model == 'basic':
+    model = basic(args.maxdisp)
+else:
+    print('no model')
 
-model = basic()
 
 if args.cuda:
     model = nn.DataParallel(model)
@@ -188,13 +187,13 @@ def main():
                 writer.add_image('image/result', torch.index_select(result,0,torch.cuda.LongTensor([0]))/192, global_step=global_step)#result is torch.cuda.float
                 writer.add_image('image/ref', torch.index_select(hr_,0,torch.LongTensor([0]))/192, global_step=global_step)#result is torch.cuda.float
                 writer.add_image('image/origin', torch.index_select(lr_,0,torch.LongTensor([0]))/192, global_step=global_step)#lr_ is torch.float
-            
-        savefilename = args.savemodel+'/checkpoint_'+str(epoch)+'.tar'
-        torch.save({
-            'epoch': epoch,
-            'state_dict': model.state_dict(),
-                'train_loss': total_train_loss/len(Trainimgloader),
-        }, savefilename)
+        if epoch % 5 == 0:
+            savefilename = args.savemodel+'/checkpoint_'+str(epoch)+'.tar'
+            torch.save({
+                'epoch': epoch,
+                'state_dict': model.state_dict(),
+                    'train_loss': total_train_loss/len(Trainimgloader),
+            }, savefilename)
 
         print('full training time = %.2f HR' %((time.time() - start_full_time)/3600))
     writer.close()
