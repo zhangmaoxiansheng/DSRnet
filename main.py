@@ -23,13 +23,13 @@ from models.submodule import SSIM
 parser = argparse.ArgumentParser(description='DSRnet')
 parser.add_argument('--maxdisp', type=int ,default=144,
                     help='maxium disparity')
-parser.add_argument('--model', default='basic_regress',
+parser.add_argument('--model', default='basic_res',
                     help='select model')
 parser.add_argument('--datapath', default='dataset/',
                     help='datapath')
 parser.add_argument('--epochs', type=int, default=100,
                     help='number of epochs to train')
-parser.add_argument('--learning_rate', type=float, default=1e-5,
+parser.add_argument('--learning_rate', type=float, default=1e-4,
                     help='number of epochs to train')
 parser.add_argument('--loadmodel', default= None,
                     help='load model')
@@ -64,7 +64,7 @@ Testimgloader = torch.utils.data.DataLoader(
 
 if args.model == 'basic_regress':
     model = basic_regress(args.maxdisp)
-elif args.model == 'basic':
+elif args.model == 'basic_res':
     model = basic(args.maxdisp)
 else:
     print('no model')
@@ -97,17 +97,20 @@ def train(img,lr, hr):
     disp_gt = scale_pyramid(hr.unsqueeze(1))
     lr_pyramid = scale_pyramid(lr)
     
-    mask = [disp_gt[i] < args.maxdisp for i in range(4)]
-    mask = [m.float() for m in mask]
-    mask = [m.detach_() for m in mask]
     #mask.detach_()
         #----
-    optimizer.zero_grad()
     
-    if args.model == 'basic':
+    
+    if args.model == 'basic_res':
         lr_pyramid = [torch.squeeze(d,1) for d in lr_pyramid]
         disp_gt = [torch.squeeze(d,1) for d in disp_gt]
         res_gt = [disp_gt[i] - lr_pyramid[i] for i in range(4)]
+
+        mask = [torch.abs(res_gt[i]) > 1 for i in range(4)]
+        mask = [m.float() for m in mask]
+        mask = [m.detach_() for m in mask]
+        optimizer.zero_grad()
+
         res_output = model(img,lr)
         res_output = [torch.squeeze(d,1) for d in res_output]
         output = [res_output[i] + lr_pyramid[i] for i in range(4)]
@@ -127,6 +130,11 @@ def train(img,lr, hr):
         lr_pyramid = [torch.squeeze(d,1) for d in lr_pyramid]
         disp_gt = [torch.squeeze(d,1) for d in disp_gt]
         #res_gt = [disp_gt[i] - lr_pyramid[i] for i in range(4)]
+        mask = [disp_gt[i] < args.maxdisp for i in range(4)]
+        mask = [m.float() for m in mask]
+        mask = [m.detach_() for m in mask]
+        optimizer.zero_grad()
+
         output = model(img,lr)
         output = [torch.squeeze(d,1) for d in output]
             
@@ -173,7 +181,7 @@ def test(img,lr,hr):
         return loss
 
 def adjust_learning_rate(optimizer, epoch, init_learning_rate):
-    lr = init_learning_rate
+    lr = init_learning_rate * (0.1 ** (epoch//40))#every 40 epochs the learning rate * 0.1
     print(lr)
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
@@ -202,9 +210,9 @@ def main():
                 writer.add_scalar('loss/total_loss', total_loss, global_step=global_step)
                 writer.add_scalar('loss/diff_loss', loss0 - l1_loss, global_step=global_step)
             if batch_idx % 50 == 0:
-                writer.add_image('image/result', torch.index_select(result,0,torch.cuda.LongTensor([0]))/192, global_step=global_step)#result is torch.cuda.float
-                writer.add_image('image/ref', torch.index_select(hr_,0,torch.LongTensor([0]))/192, global_step=global_step)#result is torch.cuda.float
                 writer.add_image('image/origin', torch.index_select(lr_,0,torch.LongTensor([0]))/192, global_step=global_step)#lr_ is torch.float
+                writer.add_image('image/ref', torch.index_select(hr_,0,torch.LongTensor([0]))/192, global_step=global_step)#result is torch.cuda.float
+                writer.add_image('image/result', torch.index_select(result,0,torch.cuda.LongTensor([0]))/192, global_step=global_step)#result is torch.cuda.float
         if epoch % 5 == 0:
             savefilename = args.savemodel+'/checkpoint_'+str(epoch)+'.tar'
             torch.save({
