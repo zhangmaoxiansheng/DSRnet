@@ -21,9 +21,9 @@ from models.submodule import scale_pyramid
 from models.submodule import SSIM
 
 parser = argparse.ArgumentParser(description='DSRnet')
-parser.add_argument('--maxdisp', type=int ,default=72,
+parser.add_argument('--maxdisp', type=int ,default=144,
                     help='maxium disparity')
-parser.add_argument('--model', default='basic',
+parser.add_argument('--model', default='basic_regress',
                     help='select model')
 parser.add_argument('--datapath', default='dataset/',
                     help='datapath')
@@ -123,6 +123,24 @@ def train(img,lr, hr):
         lr_l1_loss  = torch.exp(-lr_l1_loss)
 
         total_loss = 1.5 * l1_loss + 1 * SSIM_loss + 2.5 * diff_loss + 0.7 * lr_l1_loss
+    if args.model == 'basic_regress':
+        lr_pyramid = [torch.squeeze(d,1) for d in lr_pyramid]
+        disp_gt = [torch.squeeze(d,1) for d in disp_gt]
+        #res_gt = [disp_gt[i] - lr_pyramid[i] for i in range(4)]
+        output = model(img,lr)
+        output = [torch.squeeze(d,1) for d in output]
+            
+        o_loss = loss = F.smooth_l1_loss(lr_pyramid[0]*mask[0], disp_gt[0]*mask[0], size_average=True) + F.smooth_l1_loss(lr_pyramid[1]*mask[1], disp_gt[1]*mask[1], size_average=True) + F.smooth_l1_loss(lr_pyramid[2]*mask[2], disp_gt[2]*mask[2], size_average=True) + F.smooth_l1_loss(lr_pyramid[3]*mask[3], disp_gt[3]*mask[3], size_average=True)
+        
+        l1_loss = F.smooth_l1_loss(output[0]*mask[0], disp_gt[0]*mask[0], size_average=True) + F.smooth_l1_loss(output[1]*mask[1], disp_gt[1]*mask[1], size_average=True) + F.smooth_l1_loss(output[2]*mask[2], disp_gt[2]*mask[2], size_average=True) + F.smooth_l1_loss(output[3]*mask[3], disp_gt[3]*mask[3], size_average=True)
+        #print(l1_loss)
+        diff_loss = torch.exp(l1_loss - o_loss)
+        SSIM_loss = torch.mean(SSIM(output[0]*mask[0], disp_gt[0]*mask[0])) + torch.mean(SSIM(output[1]*mask[1], disp_gt[1]*mask[1])) + torch.mean(SSIM(output[2]*mask[2], disp_gt[2]*mask[2])) + torch.mean(SSIM(output[3]*mask[3], disp_gt[3]*mask[3]))
+        #print(SSIM_loss)
+        lr_l1_loss = F.smooth_l1_loss(output[0]*mask[0], lr_pyramid[0]*mask[0],size_average=True) + F.smooth_l1_loss( output[1]*mask[1], lr_pyramid[1]*mask[1],size_average=True) +  F.smooth_l1_loss(output[2]*mask[2], lr_pyramid[2]*mask[2], size_average=True) +  F.smooth_l1_loss( output[3]*mask[3], lr_pyramid[3]*mask[3],size_average=True)
+        lr_l1_loss  = torch.exp(-lr_l1_loss)
+        #print(lr_l1_loss)
+        total_loss = 1.5 * l1_loss + 1 * SSIM_loss# + diff_loss + 0.1 * lr_l1_loss
 
     total_loss.backward()
     optimizer.step()

@@ -170,21 +170,22 @@ class get_disp(nn.Module):
         
     def forward(self, x, max_disp):
         x = self.get_disp_conv(x)
-        x = torch.clamp(x, -max_disp , max_disp)
+        x = torch.clamp(x, -max_disp/2 , max_disp/2)
         return x
 
 class get_disp_conv(nn.Module):
     def __init__(self, ch_in):
-        super(get_disp_conv).__init__()
+        super(get_disp_conv,self).__init__()
         self.conv_ = nn.Sequential(
             nn.Conv2d(ch_in, 32, kernel_size=3, stride=1, padding=1,bias=False),
             nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1,bias=False),
-            nn.Conv2d(16, 4, kernel_size=3, stride=1, padding=1,bias=False)
+            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1,bias=False)
         )
-        self.conv_final = nn.Conv2d(4+1+1, 1, kernel_size=3, stride=1, padding=1,bias=False)
+        self.conv_final = nn.Conv2d(1+1+1, 1, kernel_size=3, stride=1, padding=1,bias=False)
     def forward(self, x, up_disp, lr, max_disp):
         x = self.conv_(x)
-        x = self.conv_final(tf.cat((x, up_disp, lr) ,1))
+        x = self.conv_final(torch.cat((x, up_disp, lr) ,1))
+        x = (x + lr)/2
         x = torch.clamp(x, 0 , max_disp)
         return x
 
