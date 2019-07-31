@@ -25,6 +25,8 @@ parser.add_argument('--stage',  default='first',
                     help='first or distill')
 parser.add_argument('--maxdisp', type=int ,default=144,
                     help='maxium disparity')
+parser.add_argument('--mask_disp', type=float ,default=0.25,
+                    help='define the mask range')
 parser.add_argument('--model', default='basic_res',
                     help='select model')
 parser.add_argument('--datapath', default='dataset/',
@@ -65,10 +67,10 @@ Testimgloader = torch.utils.data.DataLoader(
             batch_size= 8, shuffle= False, num_workers= 4, drop_last=False)
 
 
-if args.model == 'basic_regress':
-    model = basic_regress(args.maxdisp)
-elif args.model == 'basic_res':
+if args.model == 'basic_res':
     model = basic(args.maxdisp)
+elif args.model == 'iterativenet':
+    model = iterativenet(args.maxdisp)
 else:
     print('no model')
 
@@ -109,7 +111,7 @@ def train(img,lr, hr):
         disp_gt = [torch.squeeze(d,1) for d in disp_gt]
         res_gt = [disp_gt[i] - lr_pyramid[i] for i in range(4)]
 
-        mask = [torch.abs(res_gt[i]) > 0 for i in range(4)]
+        mask = [torch.abs(res_gt[i]) > args.mask_disp for i in range(4)]
         mask = [m.float() for m in mask]
         mask = [m.detach_() for m in mask]
         optimizer.zero_grad()

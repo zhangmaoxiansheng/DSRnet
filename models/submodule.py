@@ -103,13 +103,14 @@ class disp_pre_extraction(nn.Module):
 class feature_extraction(nn.Module):
     def __init__(self, layers):
         self.inplanes = 64
+        self.layers = layers
         block = bottleneck_layer
         super(feature_extraction, self).__init__()
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], stride=2)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.layer1 = self._make_layer(block, 64, self.layers[0], stride=2)
+        self.layer2 = self._make_layer(block, 128, self.layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, self.layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, self.layers[3], stride=2)
         
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -140,8 +141,10 @@ class feature_extraction(nn.Module):
         x2 = self.layer1(x1)
         x3 = self.layer2(x2)
         x4 = self.layer3(x3)
-        x5 = self.layer4(x4)
-
+        if self.layers[3] > 0:
+            x5 = self.layer4(x4)
+        else:
+            x5 = None
         return x, x1, x2, x3, x4, x5
 
 
@@ -173,23 +176,20 @@ class get_disp(nn.Module):
         x = torch.clamp(x, -max_disp/2 , max_disp/2)
         return x
 
-class get_disp_conv(nn.Module):
+class get_disp_dilate(nn.Module):
     def __init__(self, ch_in):
         super(get_disp_conv,self).__init__()
         self.conv_ = nn.Sequential(
-            nn.Conv2d(ch_in, 32, kernel_size=3, stride=1, padding=1,bias=False),
-            nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1,bias=False),
-            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1,bias=False)
+            nn.Conv2d(ch_in, 64, kernel_size=3, stride=1, padding=1,dilation=2, bias=False),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, dilation = 4, bias=False),
+            nn.Conv2d(64, 32, kernel_size=3, stride=1, padding=1, dilation = 4, bias=False),
+            nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1, dilation = 2, bias=False),
+            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1, bias=False),
         )
-        self.conv_final = nn.Conv2d(1+1+1, 1, kernel_size=3, stride=1, padding=1,bias=False)
     def forward(self, x, up_disp, lr, max_disp):
-        x = self.conv_(x)
-        x = self.conv_final(torch.cat((x, up_disp, lr) ,1))
-        x = (x + lr)/2
-        x = torch.clamp(x, 0 , max_disp)
+        x = self.get_disp_conv(x)
+        x = torch.clamp(x, -max_disp/2 , max_disp/2)
         return x
-
-
 
 def scale_pyramid(img, num_scale = 4):   
     scaled_imgs = [img]

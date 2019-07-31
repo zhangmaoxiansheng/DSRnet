@@ -1,4 +1,4 @@
 from .basic import DSRnet as basic
-from .basic_regress import DSRnet as basic_regress
+from .iterativenet import DSRnet as iterativenet
 #from .stackhourglass import DSRnet as stackhourglass
 
