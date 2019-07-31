@@ -15,9 +15,10 @@ from submodule import *
 #feature0 = 64 H/2
 class DSRnet(nn.Module):
     
-    def __init__(self,max_disp):
+    def __init__(self, max_disp, train_stage):
         super(DSRnet, self).__init__()
         self.max_disp = max_disp
+        self.train_stage = train_stage
         layer = [3,4,6,3]
         self.feature_extraction = feature_extraction(layer)
         self.disp_pre_extraction = disp_pre_extraction()
