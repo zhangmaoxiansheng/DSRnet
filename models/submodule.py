@@ -110,7 +110,8 @@ class feature_extraction(nn.Module):
         self.layer1 = self._make_layer(block, 64, self.layers[0], stride=2)
         self.layer2 = self._make_layer(block, 128, self.layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, self.layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, self.layers[3], stride=2)
+        if self.layers[3] > 0:
+            self.layer4 = self._make_layer(block, 512, self.layers[3], stride=2)
         
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -168,7 +169,7 @@ class get_disp(nn.Module):
         self.get_disp_conv = nn.Sequential(
             nn.Conv2d(ch_in, 32, kernel_size=3, stride=1, padding=1,bias=False),
             nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1,bias=False),
-            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1,bias=False),
+            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1,bias=False)
         )
         
     def forward(self, x, max_disp):
@@ -178,15 +179,15 @@ class get_disp(nn.Module):
 
 class get_disp_dilate(nn.Module):
     def __init__(self, ch_in):
-        super(get_disp_conv,self).__init__()
-        self.conv_ = nn.Sequential(
-            nn.Conv2d(ch_in, 64, kernel_size=3, stride=1, padding=1,dilation=2, bias=False),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, dilation = 4, bias=False),
-            nn.Conv2d(64, 32, kernel_size=3, stride=1, padding=1, dilation = 4, bias=False),
-            nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1, dilation = 2, bias=False),
-            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1, bias=False),
+        super(get_disp_dilate,self).__init__()
+        self.get_disp_conv = nn.Sequential(
+            nn.Conv2d(ch_in, 64, kernel_size=3, stride=1, padding=2,dilation=2, bias=False),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=4, dilation = 4, bias=False),
+            nn.Conv2d(64, 32, kernel_size=3, stride=1, padding=4, dilation = 4, bias=False),
+            nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=2, dilation = 2, bias=False),
+            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1, bias=False)
         )
-    def forward(self, x, up_disp, lr, max_disp):
+    def forward(self, x, max_disp):
         x = self.get_disp_conv(x)
         x = torch.clamp(x, -max_disp/2 , max_disp/2)
         return x

@@ -25,9 +25,9 @@ class DSRnet(nn.Module):
         self.disp_pre_extraction = disp_pre_extraction()
         self.image_pre_extraction = image_pre_extraction()
         
-        self.st1_up5 = upconv(1024 * 2, 512)#H/16
+        self.up5 = upconv(1024 * 2, 512)#H/16
         
-        self.st1_up4 = upconv(512 + 512 * 2, 256)#H/8
+        self.up4 = upconv(512 + 512 * 2, 256)#H/8
         self.disp4 = get_disp_dilate(256)
         
         self.up3 = upconv(256 + 256 * 2, 128)#H/4
@@ -60,9 +60,11 @@ class DSRnet(nn.Module):
         iconv4 = self.up4(torch.cat((image_feature[3], disp_feature[3], iconv5), 1))#H/8
         #print(iconv4.size())
         output_disp4 = self.disp4(iconv4, self.max_disp)# + lr_pyramid[3]
+        #print(output_disp4.size())
         up_disp4 = F.interpolate(output_disp4,scale_factor=2,mode='bilinear',align_corners=True)
-
+        #print(up_disp4.size())
         iconv3 = self.up3(torch.cat((image_feature[2], disp_feature[2], iconv4), 1))#H/4
+        #print(iconv3.size())
         output_disp3 = self.disp3(torch.cat((iconv3,up_disp4),1), self.max_disp)# + lr_pyramid[2]
         up_disp3 = F.interpolate(output_disp3,scale_factor=2,mode='bilinear',align_corners=True)
 
