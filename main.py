@@ -31,7 +31,7 @@ parser.add_argument('--model', default='itnet',
                     help='select model')
 parser.add_argument('--datapath', default='dataset/',
                     help='datapath')
-parser.add_argument('--epochs', type=int, default=100,
+parser.add_argument('--epochs', type=int, default=10,
                     help='number of epochs to train')
 parser.add_argument('--learning_rate', type=float, default=1e-4,
                     help='number of epochs to train')
@@ -69,19 +69,38 @@ Testimgloader = torch.utils.data.DataLoader(
 
 if args.model == 'basic_res':
     model = basic(args.maxdisp)
+    if args.cuda:
+        model = nn.DataParallel(model)
+        model.cuda()
+    if args.loadmodel is not None:
+        state_dict = torch.load(args.loadmodel)
+        model.load_state_dict(state_dict['state_dict'])
 elif args.model == 'itnet':
-    model = iterativenet(args.maxdisp)
+    model = iterativenet(args.maxdisp,args.stage)
+    if args.cuda:
+        model = nn.DataParallel(model)
+        model.cuda()
+    if args.loadmodel is not None:
+        if args.stage == 'distill':
+            model_dict = model.state_dict()
+            pretrained_dict_ = torch.load(args.loadmodel)
+            pretrained_dict_ = pretrained_dict_['state_dict']
+            # for k,v in pretrained_dict_.items():
+            #     print(k)
+            pretrained_dict = {k:v for k,v in pretrained_dict_.items() if k in model_dict}
+            model_dict.update(pretrained_dict)#items and update is dict function
+            model.load_state_dict(model_dict)
+            for k,v in model.named_parameters():
+                if k in pretrained_dict_:
+                    v.requires_grad = False
+                #print(k,v.requires_grad)
+        else:
+            state_dict = torch.load(args.loadmodel)
+            model.load_state_dict(state_dict['state_dict'])
+    elif args.stage == 'distill':
+        print('distill stage must use the pretrained model!')
 else:
     print('no model')
-
-
-if args.cuda:
-    model = nn.DataParallel(model)
-    model.cuda()
-
-if args.loadmodel is not None:
-    state_dict = torch.load(args.loadmodel)
-    model.load_state_dict(state_dict['state_dict'])
 
 print('Number of model parameters: {}'.format(sum([p.data.nelement() for p in model.parameters()])))
 
@@ -123,34 +142,37 @@ def train(img,lr, hr):
         final_output = output[0]
     if args.model == 'itnet':
         res_output = model(img,lr)
-        res_output = [torch.squeeze(d,1) for d in res_output]
+        res_output = [torch.squeeze(d,1) for d in res_output if d is not None]
         res_output1 = res_output[:4]
-        res_output2 = res_output[4:]
         output1 = [res_output1[i] + lr_pyramid[i] for i in range(4)]
-        output2 = [res_output2[i] + output1[i] for i in range(4)]
         L_1 = loss(res_output1, output1, lr_pyramid, disp_gt, mask)
         total_loss1 = 1.5 * L_1.l1_res_loss + 1 * L_1.SSIM_loss + 4 * L_1.diff_loss + 0.8 * L_1.lr_l1_loss + 0.8 * (L_1.l1_full_loss + L_1.SSIM_full_loss)
-
-        res_gt2 = [disp_gt[i] - output1[i] for i in range(4)]
-        mask2 = [torch.abs(res_gt[i]) > 0 for i in range(4)]
-        mask2 = [m.float() for m in mask2]
-        mask2 = [m.detach_() for m in mask2]
-        #optimizer.zero_grad()
-        L_2 = loss(res_output2, output2, output1, disp_gt, mask2)
-        total_loss2 = 1.5 * L_2.l1_res_loss + 1 * L_2.SSIM_loss + 4 * L_2.diff_loss + 0.8 * L_2.lr_l1_loss + 0.8 * (L_2.l1_full_loss + L_2.SSIM_full_loss)
-        
         if args.stage == 'first':
-            total_loss = total_loss1 + 0.25 * total_loss2
-            l1_res_loss_ = L_1.l1_res_loss + 0.25 * L_2.l1_res_loss
-            o_loss_ = L_1.o_loss + 0.25 * L_2.o_loss
+            total_loss = total_loss1
+            l1_loss = L_1.l1_full_loss
+            o_loss = L_1.o_loss
+            progress = o_loss - l1_loss
+            progress_distill = None
+            final_output = output1[0]
         if args.stage == "distill":
-            total_loss = 0.15 * total_loss1 + total_loss2
-            l1_res_loss_ = 0.15 * L_1.l1_res_loss +  L_2.l1_res_loss
-            o_loss_ = 0.15 * L_1.o_loss + L_2.o_loss
-        final_output = output2[0]
+            res_gt2 = [disp_gt[i] - output1[i] for i in range(4)]
+            res_output2 = res_output[4:]
+            output2 = [res_output2[i] + output1[i] for i in range(4)]
+            mask2 = [torch.abs(res_gt[i]) > 0 for i in range(4)]
+            mask2 = [m.float() for m in mask2]
+            mask2 = [m.detach_() for m in mask2]
+            #optimizer.zero_grad()
+            L_2 = loss(res_output2, output2, output1, disp_gt, mask2)
+            total_loss2 = 1.5 * L_2.l1_res_loss + 1 * L_2.SSIM_loss + 5 * L_2.diff_loss + 0.8 * L_2.lr_l1_loss + 1.2 * (L_2.l1_full_loss + L_2.SSIM_full_loss)
+            total_loss = total_loss2
+            l1_loss = L_2.l1_full_loss#in this stage just show the full l1 loss instead of res l1 loss
+            o_loss = L_1.o_loss#origin loss is l1(hr -lr)
+            progress_distill = L_1.l1_full_loss - L_2.l1_full_loss
+            progress = o_loss - l1_loss
+            final_output = output2[0]
     total_loss.backward()
     optimizer.step()
-    return total_loss.data, l1_res_loss_.data, o_loss_.data, final_output
+    return total_loss.data, l1_loss.data, o_loss.data, progress, progress_distill, final_output
 
 def test(img,lr,hr):
         model.eval()
@@ -196,13 +218,16 @@ def main():
         ## training ##
         for batch_idx, (img_, lr_, hr_) in enumerate(Trainimgloader):
             start_time = time.time()
-
-            total_loss, l1_loss, loss0, result = train(img_,lr_, hr_)
+            
+            total_loss, l1_loss, loss0, progress, progress_distill, result = train(img_,lr_, hr_)
+            
             global_step += 1
             print('Iter %d total_training loss = %.3f , time = %.2f' %(batch_idx, total_loss, time.time() - start_time))
             print('Iter %d l1 loss = %.3f' %(batch_idx, l1_loss))
             print('Iter %d origin loss = %.3f' %(batch_idx, loss0))
-            print('Iter %d progress = %.3f' %(batch_idx, loss0 - l1_loss))
+            print('Iter %d progress = %.3f' %(batch_idx, progress))
+            if progress_distill is not None:
+                print('Iter %d distill_progress = %.3f' %(batch_idx, progress_distill))
             if batch_idx % 5 == 0:
                 writer.add_scalar('loss/total_loss', total_loss, global_step=global_step)
                 writer.add_scalar('loss/diff_loss', loss0 - l1_loss, global_step=global_step)

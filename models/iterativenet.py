@@ -16,8 +16,9 @@ from submodule import *
 #################
 class DSRnet(nn.Module):
     
-    def __init__(self, max_disp):
+    def __init__(self, max_disp, stage):
         super(DSRnet, self).__init__()
+        self.stage = stage
         self.max_disp = max_disp
         #self.train_stage = train_stage
         layer = [2,4,3,0]
@@ -39,19 +40,21 @@ class DSRnet(nn.Module):
         self.up1 = upconv(64 + 64*2, 64)#H
         self.disp1 = get_disp_dilate(64+1)
 
-        self.up2_5 = upconv(1024 * 2, 512)#H/16
-        
-        self.up2_4 = upconv(512 + 512 * 2, 256)#H/8
-        self.disp2_4 = get_disp_dilate(256+1)
-        
-        self.up2_3 = upconv(256 + 256 * 2, 128)#H/4
-        self.disp2_3 = get_disp_dilate(128+1+1)
-        
-        self.up2_2 = upconv(128 + 64 * 2,64)#H/2
-        self.disp2_2 = get_disp_dilate(64+1+1)
-        
-        self.up2_1 = upconv(64 + 64*2, 64)#H
-        self.disp2_1 = get_disp_dilate(64+1+1)
+        if self.stage == 'distill':
+            self.feature_extraction2 = feature_extraction(layer)
+            self.up2_5 = upconv(1024 * 2, 512)#H/16
+            
+            self.up2_4 = upconv(512 + 512 * 2, 256)#H/8
+            self.disp2_4 = get_disp_dilate(256+1)
+            
+            self.up2_3 = upconv(256 + 256 * 2, 128)#H/4
+            self.disp2_3 = get_disp_dilate(128+1+1)
+            
+            self.up2_2 = upconv(128 + 64 * 2,64)#H/2
+            self.disp2_2 = get_disp_dilate(64+1+1)
+            
+            self.up2_1 = upconv(64 + 64*2, 64)#H
+            self.disp2_1 = get_disp_dilate(64+1+1)
 
     def forward(self,image,lr):
         # print(image.size())
@@ -90,24 +93,26 @@ class DSRnet(nn.Module):
         output_disp1_1 = self.disp1(torch.cat((iconv1,up_disp2),1), self.max_disp)# + lr_pyramid[0]
 
         ###################stage two#######################
-        res_pre_feature = self.disp_pre_extraction(output_disp1_1)
-        res_feature = self.feature_extraction(res_pre_feature)
+        if self.stage == 'distill':
+            res_pre_feature = self.disp_pre_extraction(output_disp1_1)
+            res_feature = self.feature_extraction2(res_pre_feature)
 
-        iconv2_5 = self.up2_5(torch.cat((image_feature[4] , disp_feature[4] + res_feature[4]),1))
-        
-        iconv2_4 = self.up2_4(torch.cat((image_feature[3], disp_feature[3] + res_feature[3], iconv2_5), 1))#H/8
-        output_disp2_4 = self.disp2_4( torch.cat((iconv2_4, output_disp1_4), 1), self.max_disp)
-        up_disp2_4 = F.interpolate(output_disp2_4,scale_factor=2,mode='bilinear',align_corners=True)
-        
-        iconv2_3 = self.up2_3(torch.cat((image_feature[2], disp_feature[2] + res_feature[2], iconv2_4), 1))#H/4
-        output_disp2_3 = self.disp2_3(torch.cat((iconv2_3,up_disp2_4,output_disp1_3),1), self.max_disp)
-        up_disp2_3 = F.interpolate(output_disp2_3,scale_factor=2,mode='bilinear',align_corners=True)
+            iconv2_5 = self.up2_5(torch.cat((image_feature[4] , disp_feature[4] + res_feature[4]),1))
+            
+            iconv2_4 = self.up2_4(torch.cat((image_feature[3], disp_feature[3] + res_feature[3], iconv2_5), 1))#H/8
+            output_disp2_4 = self.disp2_4( torch.cat((iconv2_4, output_disp1_4), 1), self.max_disp)
+            up_disp2_4 = F.interpolate(output_disp2_4,scale_factor=2,mode='bilinear',align_corners=True)
+            
+            iconv2_3 = self.up2_3(torch.cat((image_feature[2], disp_feature[2] + res_feature[2], iconv2_4), 1))#H/4
+            output_disp2_3 = self.disp2_3(torch.cat((iconv2_3,up_disp2_4,output_disp1_3),1), self.max_disp)
+            up_disp2_3 = F.interpolate(output_disp2_3,scale_factor=2,mode='bilinear',align_corners=True)
 
-        iconv2_2 = self.up2_2(torch.cat((image_feature[1], disp_feature[1] + res_feature[1], iconv2_3), 1))#H/2
-        output_disp2_2 = self.disp2_2(torch.cat((iconv2_2,up_disp2_3,output_disp1_2),1), self.max_disp) 
-        up_disp2_2 = F.interpolate(output_disp2_2,scale_factor=2,mode='bilinear',align_corners=True)
-        
-        iconv2_1 = self.up2_1(torch.cat((image_feature[0], disp_feature[0] + res_feature[0],iconv2_2),1))#H        
-        output_disp2_1 = self.disp2_1(torch.cat((iconv2_1,up_disp2_2 ,output_disp1_1),1), self.max_disp)
-
+            iconv2_2 = self.up2_2(torch.cat((image_feature[1], disp_feature[1] + res_feature[1], iconv2_3), 1))#H/2
+            output_disp2_2 = self.disp2_2(torch.cat((iconv2_2,up_disp2_3,output_disp1_2),1), self.max_disp) 
+            up_disp2_2 = F.interpolate(output_disp2_2,scale_factor=2,mode='bilinear',align_corners=True)
+            
+            iconv2_1 = self.up2_1(torch.cat((image_feature[0], disp_feature[0] + res_feature[0],iconv2_2),1))#H        
+            output_disp2_1 = self.disp2_1(torch.cat((iconv2_1,up_disp2_2 ,output_disp1_1),1), self.max_disp)
+        else:
+            output_disp2_1 = output_disp2_2 = output_disp2_3 = output_disp2_4 = None
         return output_disp1_1, output_disp1_2, output_disp1_3, output_disp1_4, output_disp2_1, output_disp2_2, output_disp2_3, output_disp2_4
