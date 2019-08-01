@@ -18,7 +18,7 @@ from dataloader import listfile as lt_
 from dataloader import dsr_loader as DA
 from models import *
 from models.submodule import scale_pyramid
-from models.submodule import SSIM
+from models.submodule import loss
 
 parser = argparse.ArgumentParser(description='DSRnet')
 parser.add_argument('--stage',  default='first',
@@ -101,72 +101,56 @@ def train(img,lr, hr):
         
     disp_gt = scale_pyramid(hr.unsqueeze(1))
     lr_pyramid = scale_pyramid(lr)
-    
-    #mask.detach_()
-        #----
-    
+    lr_pyramid = [torch.squeeze(d,1) for d in lr_pyramid]
+    disp_gt = [torch.squeeze(d,1) for d in disp_gt]
+    res_gt = [disp_gt[i] - lr_pyramid[i] for i in range(4)]
+
+    mask = [torch.abs(res_gt[i]) > args.mask_disp for i in range(4)]
+    mask = [m.float() for m in mask]
+    mask = [m.detach_() for m in mask]
+    optimizer.zero_grad()
     
     if args.model == 'basic_res':
-        lr_pyramid = [torch.squeeze(d,1) for d in lr_pyramid]
-        disp_gt = [torch.squeeze(d,1) for d in disp_gt]
-        res_gt = [disp_gt[i] - lr_pyramid[i] for i in range(4)]
-
-        mask = [torch.abs(res_gt[i]) > args.mask_disp for i in range(4)]
-        mask = [m.float() for m in mask]
-        mask = [m.detach_() for m in mask]
-        optimizer.zero_grad()
-
         res_output = model(img,lr)
         res_output = [torch.squeeze(d,1) for d in res_output]
         output = [res_output[i] + lr_pyramid[i] for i in range(4)]
             
-        o_loss = loss = F.smooth_l1_loss(lr_pyramid[0]*mask[0], disp_gt[0]*mask[0], size_average=True) + F.smooth_l1_loss(lr_pyramid[1]*mask[1], disp_gt[1]*mask[1], size_average=True) + F.smooth_l1_loss(lr_pyramid[2]*mask[2], disp_gt[2]*mask[2], size_average=True) + F.smooth_l1_loss(lr_pyramid[3]*mask[3], disp_gt[3]*mask[3], size_average=True)
-        
-        l1_res_loss = F.smooth_l1_loss(res_output[0]*mask[0], res_gt[0]*mask[0], size_average=True) + F.smooth_l1_loss(res_output[1]*mask[1], res_gt[1]*mask[1], size_average=True) + F.smooth_l1_loss(res_output[2]*mask[2], res_gt[2]*mask[2], size_average=True) + F.smooth_l1_loss(res_output[3]*mask[3], res_gt[3]*mask[3], size_average=True)
-        
-        diff_loss = torch.exp(l1_res_loss - o_loss)
-        SSIM_loss = torch.mean(SSIM(output[0]*mask[0], disp_gt[0]*mask[0])) + torch.mean(SSIM(output[1]*mask[1], disp_gt[1]*mask[1])) + torch.mean(SSIM(output[2]*mask[2], disp_gt[2]*mask[2])) + torch.mean(SSIM(output[3]*mask[3], disp_gt[3]*mask[3]))
-        
-        lr_l1_loss = F.smooth_l1_loss( output[0]*mask[0], lr_pyramid[0]*mask[0],size_average=True) + F.smooth_l1_loss( output[1]*mask[1], lr_pyramid[1]*mask[1],size_average=True) +  F.smooth_l1_loss(output[2]*mask[2], lr_pyramid[2]*mask[2], size_average=True) +  F.smooth_l1_loss( output[3]*mask[3], lr_pyramid[3]*mask[3],size_average=True)
-        lr_l1_loss  = torch.exp(-lr_l1_loss)
-        #loss withou mask
-        l1_full_loss = F.smooth_l1_loss(output[0], disp_gt[0], size_average=True) + F.smooth_l1_loss(output[1], disp_gt[1], size_average=True) + F.smooth_l1_loss(output[2], disp_gt[2], size_average=True) + F.smooth_l1_loss(output[3], disp_gt[3], size_average=True)
-        SSIM_full_loss = torch.mean(SSIM(output[0], disp_gt[0])) + torch.mean(SSIM(output[1], disp_gt[1])) + torch.mean(SSIM(output[2], disp_gt[2])) + torch.mean(SSIM(output[3], disp_gt[3]))
+        L = loss(res_output, output, lr_pyramid, disp_gt, mask)
         #total_loss = 1.5 * l1_res_loss + 1 * SSIM_loss + 2.5 * diff_loss + 0.7 * lr_l1_loss
-        total_loss = 1.5 * l1_res_loss + 1 * SSIM_loss + 4 * diff_loss + 0.8 * lr_l1_loss + 0.8 * (l1_full_loss + SSIM_full_loss)
+        total_loss = 1.5 * L.l1_res_loss + 1 * L.SSIM_loss + 4 * L.diff_loss + 0.8 * L.lr_l1_loss + 0.8 * (L.l1_full_loss + L.SSIM_full_loss)
+        l1_res_loss_ = L.l1_res_loss
+        o_loss_ = L.o_loss
+        final_output = output[0]
     if args.model == 'itnet':
-        lr_pyramid = [torch.squeeze(d,1) for d in lr_pyramid]
-        disp_gt = [torch.squeeze(d,1) for d in disp_gt]
-        res_gt = [disp_gt[i] - lr_pyramid[i] for i in range(4)]
-
-        mask = [torch.abs(res_gt[i]) > args.mask_disp for i in range(4)]
-        mask = [m.float() for m in mask]
-        mask = [m.detach_() for m in mask]
-        optimizer.zero_grad()
-
         res_output = model(img,lr)
         res_output = [torch.squeeze(d,1) for d in res_output]
-        output = [res_output[i] + lr_pyramid[i] for i in range(4)]
-            
-        o_loss = loss = F.smooth_l1_loss(lr_pyramid[0]*mask[0], disp_gt[0]*mask[0], size_average=True) + F.smooth_l1_loss(lr_pyramid[1]*mask[1], disp_gt[1]*mask[1], size_average=True) + F.smooth_l1_loss(lr_pyramid[2]*mask[2], disp_gt[2]*mask[2], size_average=True) + F.smooth_l1_loss(lr_pyramid[3]*mask[3], disp_gt[3]*mask[3], size_average=True)
-        
-        l1_res_loss = F.smooth_l1_loss(res_output[0]*mask[0], res_gt[0]*mask[0], size_average=True) + F.smooth_l1_loss(res_output[1]*mask[1], res_gt[1]*mask[1], size_average=True) + F.smooth_l1_loss(res_output[2]*mask[2], res_gt[2]*mask[2], size_average=True) + F.smooth_l1_loss(res_output[3]*mask[3], res_gt[3]*mask[3], size_average=True)
-        
-        diff_loss = torch.exp(l1_res_loss - o_loss)
-        SSIM_loss = torch.mean(SSIM(output[0]*mask[0], disp_gt[0]*mask[0])) + torch.mean(SSIM(output[1]*mask[1], disp_gt[1]*mask[1])) + torch.mean(SSIM(output[2]*mask[2], disp_gt[2]*mask[2])) + torch.mean(SSIM(output[3]*mask[3], disp_gt[3]*mask[3]))
-        
-        lr_l1_loss = F.smooth_l1_loss( output[0]*mask[0], lr_pyramid[0]*mask[0],size_average=True) + F.smooth_l1_loss( output[1]*mask[1], lr_pyramid[1]*mask[1],size_average=True) +  F.smooth_l1_loss(output[2]*mask[2], lr_pyramid[2]*mask[2], size_average=True) +  F.smooth_l1_loss( output[3]*mask[3], lr_pyramid[3]*mask[3],size_average=True)
-        lr_l1_loss  = torch.exp(-lr_l1_loss)
-        #loss withou mask
-        l1_full_loss = F.smooth_l1_loss(output[0], disp_gt[0], size_average=True) + F.smooth_l1_loss(output[1], disp_gt[1], size_average=True) + F.smooth_l1_loss(output[2], disp_gt[2], size_average=True) + F.smooth_l1_loss(output[3], disp_gt[3], size_average=True)
-        SSIM_full_loss = torch.mean(SSIM(output[0], disp_gt[0])) + torch.mean(SSIM(output[1], disp_gt[1])) + torch.mean(SSIM(output[2], disp_gt[2])) + torch.mean(SSIM(output[3], disp_gt[3]))
-        #total_loss = 1.5 * l1_res_loss + 1 * SSIM_loss + 2.5 * diff_loss + 0.7 * lr_l1_loss
-        total_loss = 1.5 * l1_res_loss + 1 * SSIM_loss + 4 * diff_loss + 0.8 * lr_l1_loss + 0.8 * (l1_full_loss + SSIM_full_loss)
+        res_output1 = res_output[:4]
+        res_output2 = res_output[4:]
+        output1 = [res_output1[i] + lr_pyramid[i] for i in range(4)]
+        output2 = [res_output2[i] + output1[i] for i in range(4)]
+        L_1 = loss(res_output1, output1, lr_pyramid, disp_gt, mask)
+        total_loss1 = 1.5 * L_1.l1_res_loss + 1 * L_1.SSIM_loss + 4 * L_1.diff_loss + 0.8 * L_1.lr_l1_loss + 0.8 * (L_1.l1_full_loss + L_1.SSIM_full_loss)
 
+        res_gt2 = [disp_gt[i] - output1[i] for i in range(4)]
+        mask2 = [torch.abs(res_gt[i]) > 0 for i in range(4)]
+        mask2 = [m.float() for m in mask2]
+        mask2 = [m.detach_() for m in mask2]
+        #optimizer.zero_grad()
+        L_2 = loss(res_output2, output2, output1, disp_gt, mask2)
+        total_loss2 = 1.5 * L_2.l1_res_loss + 1 * L_2.SSIM_loss + 4 * L_2.diff_loss + 0.8 * L_2.lr_l1_loss + 0.8 * (L_2.l1_full_loss + L_2.SSIM_full_loss)
+        
+        if args.stage == 'first':
+            total_loss = total_loss1 + 0.25 * total_loss2
+            l1_res_loss_ = L_1.l1_res_loss + 0.25 * L_2.l1_res_loss
+            o_loss_ = L_1.o_loss + 0.25 * L_2.o_loss
+        if args.stage == "distill":
+            total_loss = 0.15 * total_loss1 + total_loss2
+            l1_res_loss_ = 0.15 * L_1.l1_res_loss +  L_2.l1_res_loss
+            o_loss_ = 0.15 * L_1.o_loss + L_2.o_loss
+        final_output = output2[0]
     total_loss.backward()
     optimizer.step()
-
-    return total_loss.data, l1_res_loss.data, o_loss.data, output[0]
+    return total_loss.data, l1_res_loss_.data, o_loss_.data, final_output
 
 def test(img,lr,hr):
         model.eval()

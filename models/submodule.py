@@ -20,8 +20,7 @@ def convbn_3d(in_channel, out_channel, kernel_size, stride, pad):
     return nn.Sequential(nn.Conv3d(in_channel, out_channel, kernel_size=kernel_size, padding=pad, stride=stride,bias=False),
                         nn.BatchNorm3d(out_channel))
 class bottleneck_layer(nn.Module):
-    expansion = 4
-
+    expansion = 4#class attribute
     def __init__(self, inplanes, planes , stride = 1, downsample = None):
         super(bottleneck_layer, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
@@ -181,10 +180,10 @@ class get_disp_dilate(nn.Module):
     def __init__(self, ch_in):
         super(get_disp_dilate,self).__init__()
         self.get_disp_conv = nn.Sequential(
-            nn.Conv2d(ch_in, 64, kernel_size=3, stride=1, padding=2,dilation=2, bias=False),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=4, dilation = 4, bias=False),
-            nn.Conv2d(64, 32, kernel_size=3, stride=1, padding=4, dilation = 4, bias=False),
-            nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=2, dilation = 2, bias=False),
+            nn.Conv2d(ch_in, 64, kernel_size=3, stride=1, padding=1,dilation=1, bias=False),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, dilation = 1, bias=False),
+            nn.Conv2d(64, 32, kernel_size=3, stride=1, padding=1, dilation = 1, bias=False),
+            nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1, dilation = 1, bias=False),
             nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1, bias=False)
         )
     def forward(self, x, max_disp):
@@ -199,24 +198,61 @@ def scale_pyramid(img, num_scale = 4):
         scaled_imgs.append(F.interpolate(img,scale_factor=0.5**(i+1),mode='bilinear'))
 
     return scaled_imgs
+
+
+
+class loss():
+    def __init__(self, res_output, output, lr_pyramid, disp_gt, mask):
+        self.res_output = res_output
+        self.lr_pyramid = [lp.detach() for lp in lr_pyramid]
+        self.disp_gt = disp_gt
+        self.mask = mask
+        self.output = output
+        self.res_gt = [self.disp_gt[i] - self.lr_pyramid[i] for i in range(4)]
+        self.res_gt = [g.detach() for g in self.res_gt]
+        o_loss_list = [F.smooth_l1_loss(self.lr_pyramid[i]*self.mask[i], self.disp_gt[i]*self.mask[i], size_average=True) for i in range(4)]
+        self.o_loss = sum(o_loss_list)
+        self.res_loss()
+        self.global_loss()
     
+    @staticmethod
+    def SSIM(x,y):
+        C1 = 0.01 ** 2
+        C2 = 0.03 ** 2
 
-def SSIM(x,y):
-    C1 = 0.01 ** 2
-    C2 = 0.03 ** 2
+        mu_x = nn.AvgPool2d(3, 1)(x)
+        mu_y = nn.AvgPool2d(3, 1)(y)
+        mu_x_mu_y = mu_x * mu_y
+        mu_x_sq = mu_x.pow(2)
+        mu_y_sq = mu_y.pow(2)
 
-    mu_x = nn.AvgPool2d(3, 1)(x)
-    mu_y = nn.AvgPool2d(3, 1)(y)
-    mu_x_mu_y = mu_x * mu_y
-    mu_x_sq = mu_x.pow(2)
-    mu_y_sq = mu_y.pow(2)
+        sigma_x = nn.AvgPool2d(3, 1)(x * x) - mu_x_sq
+        sigma_y = nn.AvgPool2d(3, 1)(y * y) - mu_y_sq
+        sigma_xy = nn.AvgPool2d(3, 1)(x * y) - mu_x_mu_y
 
-    sigma_x = nn.AvgPool2d(3, 1)(x * x) - mu_x_sq
-    sigma_y = nn.AvgPool2d(3, 1)(y * y) - mu_y_sq
-    sigma_xy = nn.AvgPool2d(3, 1)(x * y) - mu_x_mu_y
+        SSIM_n = (2 * mu_x_mu_y + C1) * (2 * sigma_xy + C2)
+        SSIM_d = (mu_x_sq + mu_y_sq + C1) * (sigma_x + sigma_y + C2)
+        SSIM = SSIM_n / SSIM_d
 
-    SSIM_n = (2 * mu_x_mu_y + C1) * (2 * sigma_xy + C2)
-    SSIM_d = (mu_x_sq + mu_y_sq + C1) * (sigma_x + sigma_y + C2)
-    SSIM = SSIM_n / SSIM_d
+        return torch.clamp((1 - SSIM) / 2, 0, 1)
+    
+    def res_loss(self):
+        l1_res_loss_list = [F.smooth_l1_loss(self.res_output[i]*self.mask[i], self.res_gt[i]*self.mask[i], size_average=True) for i in range(4)]
+        self.l1_res_loss = sum(l1_res_loss_list)
+        
+        self.diff_loss = torch.exp(self.l1_res_loss - self.o_loss)
 
-    return torch.clamp((1 - SSIM) / 2, 0, 1)
+        SSIM_loss_list = [torch.mean(self.SSIM(self.output[i] * self.mask[i], self.disp_gt[i] * self.mask[i])) for i in range(4)]
+        self.SSIM_loss = sum(SSIM_loss_list)
+        
+        lr_l1_loss_list = [F.smooth_l1_loss(self.output[i]*self.mask[i], self.lr_pyramid[i]*self.mask[i],size_average=True) for i in range(4)]
+        self.lr_l1_loss = -sum(lr_l1_loss_list)
+        self.lr_l1_loss = torch.exp(self.lr_l1_loss)
+        #return self.l1_res_loss, self.diff_loss, self.SSIM_loss, self.lr_l1_loss
+    
+    def global_loss(self):
+        l1_full_loss_list = [F.smooth_l1_loss(self.output[i], self.disp_gt[i], size_average=True) for i in range(4)]
+        self.l1_full_loss = sum(l1_full_loss_list)
+        SSIM_full_loss_list = [torch.mean(self.SSIM(self.output[i], self.disp_gt[i])) for i in range(4)]
+        self.SSIM_full_loss = sum(SSIM_full_loss_list)
+        #return self.l1_full_loss, self.SSIM_full_loss
