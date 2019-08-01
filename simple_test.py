@@ -18,8 +18,10 @@ from models import *
 
 
 parser = argparse.ArgumentParser(description='DSRnet_simple_test')
-parser.add_argument('--model', default='basic',
+parser.add_argument('--model', default='itnet',
                     help='select model')
+parser.add_argument('--stage',  default='first',
+                    help='first or distill')
 parser.add_argument('--maxdisp', type=int ,default=144,
                     help='maxium disparity')
 parser.add_argument('--img', type=str, default='./sr1.png',
@@ -39,7 +41,10 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 if not os.path.isdir(args.output_dir):
     os.mkdir(args.output_dir)
-model = basic(args.maxdisp)
+if args.model == 'basic_res':
+    model = basic(args.maxdisp)
+if args.model == 'itnet':
+    model = iterativenet(args.max_disp, args.stage)
 
 if args.cuda:
     model = nn.DataParallel(model)
@@ -66,7 +71,11 @@ basenames = [os.path.splitext(f)[0] for f in basenames]
 Testloader = torch.utils.data.DataLoader(
         DA.myImageFloder(test_imgs_path,test_lr_path,None, False), 
         batch_size= 1, shuffle= False, num_workers= 1, drop_last=False)
-
+def generate_output(output):
+    output = output.squeeze()
+    output = output.cpu()
+    output = output.numpy()
+    return output
 def test(img,lr):
     model.eval()
     img = Variable(torch.FloatTensor(img))
@@ -77,21 +86,32 @@ def test(img,lr):
     
     with torch.no_grad():
         res_output = model(img,lr)
-    output = res_output[0].squeeze() + lr.squeeze()
-    output = output.cpu()
-    output = output.numpy()
-    res_output = res_output[0].squeeze()
-    res_output = res_output.cpu()
-    res_output = res_output.numpy()
-    return output, res_output
+        if args.model == 'basic_res' or args.stage == 'first':
+            output = generate_output(res_output[0] + lr)
+            res_output = generate_output(res_output[0])
+            res_output1 = res_output2 = None
+        else:
+            output1 = generate_output(res_output[0] + lr)
+            output2 = generate_output(output1 + res_output[4])
+            
+            res_output1 =generate_output(res_output[0])
+            res_output2 = generate_output(res_output[4])
+            res_output = res_output1 + res_output2
+        
+    return output, res_output, res_output1, res_output2
 def main():
     if not os.path.isdir(args.output_dir):
         os.mkdir(args.output_dir)
     for num, (img, lr) in enumerate(Testloader):
-        output, res_output = test(img,lr)
+        output, res_output, res_output1, res_output2 = test(img,lr)
         print("finished %d"%(num+1))
         plt.imsave(str(os.path.join(args.output_dir,basenames[num]) + "_sr_vis.png"), output, cmap = 'plasma')
         write_pfm(str(os.path.join(args.output_dir,basenames[num]) + "_res.pfm"),res_output)
         write_pfm(str(os.path.join(args.output_dir,basenames[num]) + "_sr.pfm"),output)
+        if res_output1 is not None:
+            write_pfm(str(os.path.join(args.output_dir,basenames[num]) + "_res1.pfm"),res_output1)
+        if res_output2 is not None:
+            write_pfm(str(os.path.join(args.output_dir,basenames[num]) + "_res2.pfm"),res_output2)
+
 if __name__ == '__main__':
     main()

@@ -78,7 +78,7 @@ if args.model == 'basic_res':
 elif args.model == 'itnet':
     model = iterativenet(args.maxdisp,args.stage)
     if args.cuda:
-        model = nn.DataParallel(model)
+        model = nn.DataParallel(model)#attention, use parallel, the parameters name is like module.xxx
         model.cuda()
     if args.loadmodel is not None:
         if args.stage == 'distill':
@@ -88,7 +88,7 @@ elif args.model == 'itnet':
             # for k,v in pretrained_dict_.items():
             #     print(k)
             pretrained_dict = {k:v for k,v in pretrained_dict_.items() if k in model_dict}
-            model_dict.update(pretrained_dict)#items and update is dict function
+            model_dict.update(pretrained_dict)#items and update are dict function
             model.load_state_dict(model_dict)
             for k,v in model.named_parameters():
                 if k in pretrained_dict_:
@@ -106,7 +106,15 @@ print('Number of model parameters: {}'.format(sum([p.data.nelement() for p in mo
 
 optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999))
 
-
+def generate_mask(res_gt, disp_range):
+    mask = [torch.abs(res_gt[i]) > args.mask_disp for i in range(4)]
+    mask = [m.float() for m in mask]
+    mask = [m.detach_() for m in mask]
+    return mask
+def generate_output(res_output, base):
+    res_output = [torch.squeeze(d,1) for d in res_output if d is not None]
+    output = [res_output[i] + base[i] for i in range(4)]
+    return res_output, output
 def train(img,lr, hr):
     model.train()
     img   = Variable(torch.FloatTensor(img))
@@ -123,16 +131,12 @@ def train(img,lr, hr):
     lr_pyramid = [torch.squeeze(d,1) for d in lr_pyramid]
     disp_gt = [torch.squeeze(d,1) for d in disp_gt]
     res_gt = [disp_gt[i] - lr_pyramid[i] for i in range(4)]
-
-    mask = [torch.abs(res_gt[i]) > args.mask_disp for i in range(4)]
-    mask = [m.float() for m in mask]
-    mask = [m.detach_() for m in mask]
+    mask = generate_mask(res_gt, args.mask_disp)
     optimizer.zero_grad()
     
     if args.model == 'basic_res':
         res_output = model(img,lr)
-        res_output = [torch.squeeze(d,1) for d in res_output]
-        output = [res_output[i] + lr_pyramid[i] for i in range(4)]
+        res_output, output = generate_output(res_output, lr_pyramid)
             
         L = loss(res_output, output, lr_pyramid, disp_gt, mask)
         #total_loss = 1.5 * l1_res_loss + 1 * SSIM_loss + 2.5 * diff_loss + 0.7 * lr_l1_loss
@@ -142,9 +146,9 @@ def train(img,lr, hr):
         final_output = output[0]
     if args.model == 'itnet':
         res_output = model(img,lr)
-        res_output = [torch.squeeze(d,1) for d in res_output if d is not None]
+        
         res_output1 = res_output[:4]
-        output1 = [res_output1[i] + lr_pyramid[i] for i in range(4)]
+        res_output1, output1 = generate_output(res_output1, lr_pyramid)
         L_1 = loss(res_output1, output1, lr_pyramid, disp_gt, mask)
         total_loss1 = 1.5 * L_1.l1_res_loss + 1 * L_1.SSIM_loss + 4 * L_1.diff_loss + 0.8 * L_1.lr_l1_loss + 0.8 * (L_1.l1_full_loss + L_1.SSIM_full_loss)
         if args.stage == 'first':
@@ -157,13 +161,12 @@ def train(img,lr, hr):
         if args.stage == "distill":
             res_gt2 = [disp_gt[i] - output1[i] for i in range(4)]
             res_output2 = res_output[4:]
-            output2 = [res_output2[i] + output1[i] for i in range(4)]
-            mask2 = [torch.abs(res_gt[i]) > 0 for i in range(4)]
-            mask2 = [m.float() for m in mask2]
-            mask2 = [m.detach_() for m in mask2]
-            #optimizer.zero_grad()
+            res_output2, output2 = generate_output(res_output2, output1)
+            mask2 = generate_mask(res_gt2, 0)
+            
             L_2 = loss(res_output2, output2, output1, disp_gt, mask2)
             total_loss2 = 1.5 * L_2.l1_res_loss + 1 * L_2.SSIM_loss + 5 * L_2.diff_loss + 0.8 * L_2.lr_l1_loss + 1.2 * (L_2.l1_full_loss + L_2.SSIM_full_loss)
+            
             total_loss = total_loss2
             l1_loss = L_2.l1_full_loss#in this stage just show the full l1 loss instead of res l1 loss
             o_loss = L_1.o_loss#origin loss is l1(hr -lr)
